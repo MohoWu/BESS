@@ -44,7 +44,7 @@ Key observations:
 
 ## Feature Engineering
 
-Features were shortlisted primarily based on their marginal correlation with the target price and their availability strictly before the day-ahead decision window (no leakage).
+Features were shortlisted primarily based on their marginal correlation with the target price and their availability strictly before the day-ahead decision window (no leakage). Day-ahead bids for day D are submitted before 10:00 on D-1; at that point only D-2 has a complete full-day record of physical actuals such as DRM and interconnector flows.
 
 **Calendar features:**
 - `settlement_period` — within-day position (1–48); captures intra-day shape.
@@ -58,8 +58,8 @@ Features were shortlisted primarily based on their marginal correlation with the
 
 **Fundamental features:**
 - `net_load` — demand minus wind forecast minus embedded wind forecast minus embedded solar forecast. The single most important driver of price level.
-- `drm_eve_mean`, `drm_min` — De-rated Margin statistics for the coming evening; low DRM indicates tightening supply.
-- `lolp_max` — maximum Loss of Load Probability over the settlement day; captures scarcity/tail spike risk.
+- `drm_eve_mean`, `drm_min` — De-rated Margin statistics from D-2 (last complete day of actuals at bid time); low DRM indicates tightening supply.
+- `lolp_max` — maximum Loss of Load Probability from D-2; captures scarcity/tail spike risk.
 
 ---
 
@@ -91,18 +91,18 @@ Minor quantile crossings (concentrated at the Q01/Q05 and Q95/Q99 pairs) are cor
 
 | Metric | LightGBM P50 | Naive lag-1d |
 |--------|-------------|--------------|
-| MAE    | 15.24 £/MWh | 20.59 £/MWh  |
-| RMSE   | 26.75 £/MWh | 38.43 £/MWh  |
+| MAE    | 15.42 £/MWh | 20.59 £/MWh  |
+| RMSE   | 27.06 £/MWh | 38.43 £/MWh  |
 
 The model beats the naive benchmark consistently across most months and settlement periods. The exception is February/March, where low day-over-day volatility makes the raw lag-1d hard to beat.
 
 **Probabilistic calibration:**
-The 80% and 90% prediction intervals achieve close to nominal coverage while being considerably narrower than the naive residual baseline — roughly half the width at the 80%/90% level. The 98% interval (Q01–Q99) is particularly important as it directly anchors the inverse CDF tail used when generating copula scenarios.
+The 90% and 98% prediction intervals achieve close to nominal coverage while being considerably narrower than the naive residual baseline — roughly half the width at the 90%/98% level. The 98% interval (Q01–Q99) is particularly important as it directly anchors the inverse CDF tail used when generating copula scenarios.
 
-The reliability diagram shows a mild upward level bias across all quantiles (empirical coverage slightly exceeds nominal), indicating the model systematically over-forecasts price levels rather than over-widening intervals. This is most visible in certain months and does not invalidate the calibration for spread forecasting.
+The reliability diagram shows an upward level bias concentrated in the Q25–Q90 range (empirical coverage exceeds nominal by up to +4%). Tail quantiles (Q01, Q95, Q99) are well-calibrated with near-zero bias. This is a level bias, not a width problem.
 
 **Shape diagnostics:**
-The P50 correctly identifies the peak-3 settlement periods on ~46% of days and the cheapest-3 on ~29% of days. The daily spread (high minus low) is systematically compressed in point forecasts: the model under-predicts daily highs and over-predicts daily lows on average. This is expected for a regression-to-the-mean estimator and is precisely why probabilistic scenarios (via the copula) are the right tool for spread-sensitive trading decisions rather than the P50 alone.
+The P50 correctly identifies the peak-3 settlement periods on ~46% of days and the cheapest-3 on ~28% of days. The daily spread (high minus low) is systematically compressed in point forecasts: the model under-predicts daily highs and over-predicts daily lows on average (mean spread error −19.9 £/MWh). This is expected for a regression-to-the-mean estimator and is precisely why probabilistic scenarios (via the copula) are the right tool for spread-sensitive trading decisions rather than the P50 alone.
 
 ---
 
@@ -132,10 +132,10 @@ The copula is re-fitted each month using an expanding training window, mirroring
 | Model        | Mean log-score per day | Std   |
 |--------------|----------------------|-------|
 | Independence | 0.000                | —     |
-| Gaussian     | 34.4                 | 33.6  |
-| t-copula     | 42.5                 | 26.5  |
+| Gaussian     | 34.7                 | 33.7  |
+| t-copula     | 42.8                 | 26.2  |
 
-The t-copula significantly outperforms the Gaussian (paired t-test: t=7.19, p<0.0001) with lower variance across days — it is both better on average and more consistent. The fitted degrees-of-freedom ν ≈ 27–32 across folds, indicating that the t-copula's heavier tails versus the Gaussian are empirically warranted.
+The t-copula significantly outperforms the Gaussian (paired t-test: t=6.53, p<0.0001) with lower variance across days — it is both better on average and more consistent. The fitted degrees-of-freedom ν ≈ 24–33 across folds, indicating that the t-copula's heavier tails versus the Gaussian are empirically warranted.
 
 **Dependence preservation:**
 Both copulas reproduce adjacent-period Spearman correlations accurately (MAE ≈ 0.02–0.03 vs 0.86 for independence). At longer lags (13+ periods apart), both copulas overestimate dependence — the stationary global correlation matrix inflates long-range correlations due to days with regime-wide price shifts in the training data. This is most visible for overnight-to-evening period pairs, where empirical correlations are near zero but both copulas predict noticeably positive values.
@@ -151,7 +151,7 @@ Both copulas reproduce adjacent-period Spearman correlations accurately (MAE ≈
 | Overnight→Evening     | 12.5        | 12.3     | 12.2     |
 | Midday→Evening        | 13.4        | 13.3     | 13.2     |
 
-For adjacent spreads the copulas achieve a ~56% reduction in CRPS versus independence. For distant pairs the gain shrinks to near zero, consistent with both copulas overestimating long-range dependence.
+For adjacent spreads the copulas achieve a ~59% reduction in CRPS versus independence. For distant pairs the gain shrinks to near zero, consistent with both copulas overestimating long-range dependence.
 
 ---
 
@@ -167,13 +167,11 @@ These scenarios support battery trading in several concrete ways:
 
 **Charging period selection:** The cheapest charging periods and most profitable discharge periods can be identified probabilistically across the 500 scenarios, with an explicit confidence level rather than a binary point-forecast decision.
 
-**Value-at-Risk / downside protection:** The tail of the scenario distribution (worst-case spread outcomes) informs risk limits and hedging decisions. This is impossible from marginal quantile forecasts alone.
-
 ---
 
 ## Limitations
 
-**Spread compression in the marginal model:** The LightGBM P50 compresses the daily high-low spread relative to reality (mean spread error −18.6 £/MWh). This flows through to scenario generation: the median scenario will systematically understate the arbitrage opportunity. The copula partially compensates by sampling from the full quantile range, but systematic P50 bias is an upstream problem.
+**Spread compression in the marginal model:** The LightGBM P50 compresses the daily high-low spread relative to reality (mean spread error −19.9 £/MWh). This flows through to scenario generation: the median scenario will systematically understate the arbitrage opportunity. The copula partially compensates by sampling from the full quantile range, but systematic P50 bias is an upstream problem.
 
 **Overestimated long-range dependence:** Both copulas use a single stationary, unstructured 48×48 correlation matrix. This overestimates dependence between distant settlement periods (e.g., overnight vs evening peak). For a battery that charges overnight and discharges in the evening, this leads to inflated estimates of the joint probability that both periods are simultaneously extreme, slightly overstating the benefit of the full-day arbitrage strategy.
 
