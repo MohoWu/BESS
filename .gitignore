@@ -1,0 +1,5 @@
+PRD
+*.pdf
+/*.ipynb
+.venv
+.DS_Store
