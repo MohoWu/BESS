@@ -157,11 +157,11 @@ For adjacent spreads the copulas achieve a ~59% reduction in CRPS versus indepen
 
 ## How This System Supports Battery Trading
 
-The combined LightGBM + copula system outputs 500 full-day price scenarios each morning, each a vector of 48 correlated prices that respects both the marginal distributions and the within-day dependence structure.
+A quantile regression + copula system gives the BESS optimiser not just a point forecast, but a set of realistic full-day price scenarios. The quantile model captures uncertainty at each settlement period, while the copula makes sure those period-level uncertainties are linked into coherent daily paths, so the optimiser can see whether cheap charging windows and expensive discharging windows actually line up in feasible ways.
 
 These scenarios support battery trading in several concrete ways:
 
-**Optimal dispatch planning:** The 500 scenarios can be fed directly into a stochastic optimisation problem (e.g., stochastic MPC or scenario-tree DP) that maximises expected revenue subject to battery state-of-charge constraints. This is strictly better than planning against a single point forecast because it accounts for spread uncertainty and avoids false precision.
+**Optimal dispatch planning:** The 500 scenarios can be fed directly into a stochastic optimisation problem that maximises expected log wealth, which takes into account the battery state-of-charge constraints and other operational costs. This is strictly better than planning against a single point forecast because it accounts for spread uncertainty and avoids false precision.
 
 **Spread distribution forecasting:** A key battery profitability driver is the difference between peak and off-peak prices within a day. The copula directly captures this joint structure. The scenario distribution of (price_peak − price_off_peak) is a well-calibrated forecast of tomorrow's arbitrage opportunity.
 
